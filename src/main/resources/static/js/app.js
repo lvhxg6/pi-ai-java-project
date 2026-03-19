@@ -17,7 +17,7 @@ function chatApp() {
         inputMessage: '',
         isStreaming: false,
         streamingContent: '',
-        eventSource: null,
+        abortController: null,
         contextUsage: {
             currentTokens: 0,
             contextWindow: 128000,
@@ -32,6 +32,10 @@ function chatApp() {
             // Select first session if available
             if (this.sessions.length > 0) {
                 await this.selectSession(this.sessions[0].id);
+                // Sync selected model to backend
+                if (this.selectedModel) {
+                    await this.switchModel();
+                }
             }
         },
 
@@ -94,6 +98,10 @@ function chatApp() {
                     const session = await response.json();
                     this.sessions.unshift(session);
                     await this.selectSession(session.id);
+                    // Sync selected model to backend for new session
+                    if (this.selectedModel) {
+                        await this.switchModel();
+                    }
                 }
             } catch (error) {
                 console.error('Failed to create session:', error);
@@ -177,25 +185,90 @@ function chatApp() {
             this.streamingContent = '';
 
             try {
-                // Parse provider:modelId format for the SSE URL
-                let modelIdParam = this.selectedModel;
-                if (this.selectedModel.includes(':')) {
-                    modelIdParam = this.selectedModel.split(':').slice(1).join(':');
-                }
-
-                this.eventSource = new EventSource(
-                    `/api/chat/${this.currentSessionId}/message?content=${encodeURIComponent(message)}&modelId=${modelIdParam}`
+                // Use fetch + ReadableStream for POST SSE
+                this.abortController = new AbortController();
+                const response = await fetch(
+                    `/api/chat/${this.currentSessionId}/message`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content: message }),
+                        signal: this.abortController.signal
+                    }
                 );
 
-                this.eventSource.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    this.handleChatEvent(data);
-                };
-
-                this.eventSource.onerror = (error) => {
-                    console.error('SSE error:', error);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Send message failed:', response.status, errorText);
                     this.finishStreaming();
-                };
+                    alert('Error: ' + (errorText || response.statusText));
+                    return;
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    
+                    // Parse SSE lines from buffer
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // keep incomplete line in buffer
+
+                    let currentEventName = '';
+                    for (const line of lines) {
+                        if (line.startsWith('event:')) {
+                            currentEventName = line.substring(6).trim();
+                        } else if (line.startsWith('data:')) {
+                            const dataStr = line.substring(5).trim();
+                            if (dataStr) {
+                                try {
+                                    const data = JSON.parse(dataStr);
+                                    this.handleChatEvent(data, currentEventName);
+                                } catch (e) {
+                                    console.warn('Failed to parse SSE data:', dataStr);
+                                }
+                            }
+                            currentEventName = '';
+                        }
+                    }
+                }
+
+                // Process any remaining buffer
+                if (buffer.trim()) {
+                    const lines = buffer.split('\n');
+                    let currentEventName = '';
+                    for (const line of lines) {
+                        if (line.startsWith('event:')) {
+                            currentEventName = line.substring(6).trim();
+                        } else if (line.startsWith('data:')) {
+                            const dataStr = line.substring(5).trim();
+                            if (dataStr) {
+                                try {
+                                    const data = JSON.parse(dataStr);
+                                    this.handleChatEvent(data, currentEventName);
+                                } catch (e) { /* ignore */ }
+                            }
+                        }
+                    }
+                }
+
+                // If streaming wasn't finished by events, finish it now
+                if (this.isStreaming) {
+                    if (this.streamingContent) {
+                        this.messages.push({
+                            id: Date.now(),
+                            role: 'assistant',
+                            content: this.streamingContent
+                        });
+                    }
+                    this.finishStreaming();
+                    this.loadContextUsage(this.currentSessionId);
+                }
             } catch (error) {
                 console.error('Failed to send message:', error);
                 this.finishStreaming();
@@ -203,13 +276,20 @@ function chatApp() {
         },
 
         // Handle chat events
-        handleChatEvent(event) {
-            switch (event.type) {
-                case 'text':
-                    this.streamingContent += event.content;
+        handleChatEvent(event, eventName) {
+            const type = eventName || event.type;
+            switch (type) {
+                case 'text_delta':
+                    this.streamingContent += (event.delta || '');
                     this.scrollToBottom();
                     break;
-                case 'done':
+                case 'text_end':
+                    // Full content available
+                    if (event.fullContent) {
+                        this.streamingContent = event.fullContent;
+                    }
+                    break;
+                case 'message_done':
                     this.messages.push({
                         id: Date.now(),
                         role: 'assistant',
@@ -221,7 +301,18 @@ function chatApp() {
                 case 'error':
                     console.error('Chat error:', event.message);
                     this.finishStreaming();
-                    alert('Error: ' + event.message);
+                    alert('Error: ' + (event.message || 'Unknown error'));
+                    break;
+                case 'text_start':
+                case 'thinking_start':
+                case 'thinking_end':
+                case 'tool_call_start':
+                case 'tool_call_end':
+                case 'compaction_notice':
+                    // Acknowledged but no UI action needed
+                    break;
+                case 'thinking_delta':
+                    // Could display thinking content in future
                     break;
             }
         },
@@ -230,15 +321,21 @@ function chatApp() {
         finishStreaming() {
             this.isStreaming = false;
             this.streamingContent = '';
-            if (this.eventSource) {
-                this.eventSource.close();
-                this.eventSource = null;
+            if (this.abortController) {
+                this.abortController.abort();
+                this.abortController = null;
             }
         },
 
         // Abort chat
         async abortChat() {
             if (!this.currentSessionId) return;
+            
+            // Abort the fetch request
+            if (this.abortController) {
+                this.abortController.abort();
+                this.abortController = null;
+            }
             
             try {
                 await fetch(`/api/chat/${this.currentSessionId}/abort`, {
