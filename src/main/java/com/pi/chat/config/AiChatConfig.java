@@ -213,7 +213,7 @@ public class AiChatConfig {
      */
     @Bean
     public ChatService chatService(SessionService sessionService, ModelService modelService,
-                                   CodingModelRegistry modelRegistry) {
-        return new ChatService(sessionService, modelService, modelRegistry);
+                                   CodingModelRegistry modelRegistry, BrandService brandService) {
+        return new ChatService(sessionService, modelService, modelRegistry, brandService);
     }
 }
