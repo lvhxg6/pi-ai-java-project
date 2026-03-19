@@ -2,7 +2,7 @@
 # Requirements: 7.3 (Session persistence), 10.1 (Configuration management)
 
 server:
-  port: 8080
+  port: 18080
   # SSE timeout configuration for streaming responses
   servlet:
     session:
@@ -89,7 +89,7 @@ spring:
       on-profile: dev
 
 server:
-  port: 8080
+  port: 18080
 
 ai-chat:
   session:
