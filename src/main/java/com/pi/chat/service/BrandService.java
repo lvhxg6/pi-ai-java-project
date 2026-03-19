@@ -1,6 +1,5 @@
 package com.pi.chat.service;
 
-import com.pi.ai.core.types.Model;
 import com.pi.chat.dto.*;
 import com.pi.chat.exception.BrandNotFoundException;
 import com.pi.chat.exception.IllegalBrandOperationException;
@@ -434,17 +433,7 @@ public class BrandService {
     }
 
     private List<ModelDTO> buildModelDTOs(BrandView brand) {
-        // For built-in brands: try to get models from CodingModelRegistry
-        if (brand.builtin() && modelRegistry != null) {
-            List<Model> registryModels = modelRegistry.getModelsForProvider(brand.provider());
-            if (registryModels != null && !registryModels.isEmpty()) {
-                return registryModels.stream()
-                        .map(ModelDTO::from)
-                        .toList();
-            }
-        }
-
-        // For extension/custom brands or fallback: use saved config / definition models
+        // All brands: only show user-configured models (from saved config / definition)
         return brand.models().stream()
                 .map(m -> new ModelDTO(
                         m.id(), m.name(), brand.provider(),
