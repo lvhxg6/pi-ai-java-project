@@ -1,0 +1,124 @@
+# AI Chat Web Application Configuration
+# Requirements: 7.3 (Session persistence), 10.1 (Configuration management)
+
+server:
+  port: 8080
+  # SSE timeout configuration for streaming responses
+  servlet:
+    session:
+      timeout: 30m
+
+spring:
+  application:
+    name: pi-ai-chat-web
+  
+  # Thymeleaf configuration
+  thymeleaf:
+    cache: false
+    mode: HTML
+    encoding: UTF-8
+    prefix: classpath:/templates/
+    suffix: .html
+    # Enable template hot-reload in development
+    check-template-location: true
+  
+  # Jackson JSON configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+      indent-output: false
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+    date-format: yyyy-MM-dd'T'HH:mm:ss.SSSZ
+  
+  # Async task executor configuration
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 16
+        queue-capacity: 100
+        keep-alive: 60s
+      thread-name-prefix: chat-async-
+
+# AI Chat application specific configuration
+ai-chat:
+  # Session storage configuration (Requirement 7.3)
+  session:
+    storage-dir: data/sessions
+    # Auto-save interval in seconds
+    auto-save-interval: 5
+  
+  # Provider configuration (Requirement 10.1)
+  provider:
+    config-file: data/providers.json
+    # API key encryption key (should be overridden via environment variable)
+    encryption-key: ${AI_CHAT_ENCRYPTION_KEY:default-dev-key-change-in-prod}
+  
+  # SSE streaming configuration
+  sse:
+    # SSE connection timeout in milliseconds (5 minutes)
+    timeout: 300000
+    # Heartbeat interval to keep connection alive (30 seconds)
+    heartbeat-interval: 30000
+  
+  # Context compaction configuration (Requirement 6.2)
+  compaction:
+    # Trigger compaction when context reaches this percentage of window
+    threshold-percent: 80
+    # Number of recent messages to preserve during compaction
+    preserve-recent-count: 5
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    com.pi.chat: DEBUG
+    com.pi.ai: DEBUG
+    com.pi.agent: DEBUG
+    com.pi.coding: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+---
+# Development profile
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+server:
+  port: 8080
+
+ai-chat:
+  session:
+    storage-dir: ./data/sessions
+  provider:
+    config-file: ./data/providers.json
+
+logging:
+  level:
+    com.pi.chat: DEBUG
+
+---
+# Production profile
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+spring.thymeleaf:
+  cache: true
+
+ai-chat:
+  session:
+    storage-dir: /var/lib/ai-chat/sessions
+  provider:
+    config-file: /etc/ai-chat/providers.json
+    encryption-key: ${AI_CHAT_ENCRYPTION_KEY}
+
+logging:
+  level:
+    root: WARN
+    com.pi.chat: INFO

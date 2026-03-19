@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" 
+      th:replace="~{layout :: html}" 
+      th:with="title='AI Chat'">
+<body>
+<div th:fragment="content" x-data="chatApp()" x-cloak class="flex h-screen">
+    
+    <!-- Sidebar -->
+    <aside class="w-64 bg-gray-900 text-white flex flex-col">
+        <!-- Header -->
+        <div class="p-4 border-b border-gray-700">
+            <h1 class="text-xl font-bold">AI Chat</h1>
+        </div>
+        
+        <!-- New Chat Button -->
+        <div class="p-4">
+            <button @click="createSession()" 
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                New Chat
+            </button>
+        </div>
+        
+        <!-- Session List -->
+        <div class="flex-1 overflow-y-auto">
+            <template x-for="session in sessions" :key="session.id">
+                <div @click="selectSession(session.id)" 
+                     :class="{'bg-gray-700': currentSessionId === session.id}"
+                     class="p-3 mx-2 my-1 rounded-lg cursor-pointer hover:bg-gray-700 transition-colors group">
+                    <div class="flex items-center justify-between">
+                        <div class="font-medium truncate flex-1" x-text="session.name"></div>
+                        <button @click.stop="deleteSession(session.id)" 
+                                class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="text-xs text-gray-400" x-text="formatDate(session.lastActivityAt)"></div>
+                </div>
+            </template>
+        </div>
+        
+        <!-- Settings Link -->
+        <div class="p-4 border-t border-gray-700">
+            <a href="/settings" class="w-full text-gray-400 hover:text-white py-2 flex items-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                          d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+                Settings
+            </a>
+        </div>
+    </aside>
+    
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col bg-white">
+        <!-- Chat Header -->
+        <header class="h-16 border-b flex items-center justify-between px-6">
+            <div class="flex items-center gap-4">
+                <h2 class="text-lg font-semibold" x-text="currentSession?.name || 'Select a chat'"></h2>
+            </div>
+            <div class="flex items-center gap-4">
+                <!-- Model Selector -->
+                <select x-model="selectedModel" 
+                        @change="switchModel()"
+                        class="border rounded-lg px-3 py-2 text-sm">
+                    <template x-for="model in models" :key="model.id">
+                        <option :value="model.id" x-text="model.name"></option>
+                    </template>
+                </select>
+                
+                <!-- Context Usage -->
+                <div class="flex items-center gap-2 text-sm text-gray-500">
+                    <span x-text="contextUsage.currentTokens + '/' + contextUsage.contextWindow"></span>
+                    <div class="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div class="h-full bg-blue-500 transition-all" 
+                             :class="{'bg-yellow-500': contextUsage.usagePercent > 60, 'bg-red-500': contextUsage.usagePercent > 80}"
+                             :style="'width: ' + contextUsage.usagePercent + '%'"></div>
+                    </div>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Messages Area -->
+        <div class="flex-1 overflow-y-auto p-6" id="messages-container">
+            <template x-for="message in messages" :key="message.id">
+                <div :class="message.role === 'user' ? 'justify-end' : 'justify-start'" class="flex mb-4">
+                    <div :class="message.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-100'" 
+                         class="max-w-3xl rounded-lg px-4 py-3">
+                        <div x-html="renderMarkdown(message.content)"></div>
+                    </div>
+                </div>
+            </template>
+            
+            <!-- Streaming Response -->
+            <div x-show="isStreaming" class="flex justify-start mb-4">
+                <div class="bg-gray-100 max-w-3xl rounded-lg px-4 py-3">
+                    <div x-html="renderMarkdown(streamingContent)"></div>
+                    <span class="inline-block w-2 h-4 bg-gray-400 animate-pulse ml-1"></span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Input Area -->
+        <div class="border-t p-4">
+            <div class="max-w-4xl mx-auto flex gap-4">
+                <textarea x-model="inputMessage" 
+                          @keydown.enter.prevent="sendMessage()"
+                          @keydown.ctrl.n.prevent="createSession()"
+                          placeholder="Type your message..."
+                          rows="3"
+                          class="flex-1 border rounded-lg px-4 py-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                <div class="flex flex-col gap-2">
+                    <button @click="sendMessage()" 
+                            :disabled="!inputMessage.trim() || isStreaming"
+                            class="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-6 py-3 rounded-lg">
+                        Send
+                    </button>
+                    <button x-show="isStreaming" 
+                            @click="abortChat()"
+                            class="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg">
+                        Stop
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+</body>
+</html>

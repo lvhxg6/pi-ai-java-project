@@ -1,0 +1,26 @@
+# Build output
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+
+# Data (runtime generated)
+data/sessions/
+data/providers.json
+
+# jqwik
+.jqwik-database
+
+# Maven
+*.jar
+!.mvn/wrapper/*.jar
