@@ -125,3 +125,191 @@ textarea:focus, input:focus, select:focus {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
+
+/* ========================================
+   Brand Management Styles
+   ======================================== */
+
+/* Brand layout - left-right split */
+.brand-layout {
+    display: flex;
+    height: 100%;
+    background: #f9fafb;
+}
+
+/* Brand sidebar - left panel */
+.brand-sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: #ffffff;
+    border-right: 1px solid #e5e7eb;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+/* Brand list item */
+.brand-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    margin: 2px 0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 150ms, opacity 150ms;
+}
+
+.brand-list-item:hover {
+    background-color: #f3f4f6;
+}
+
+.brand-list-item.selected {
+    background-color: #eff6ff;
+    border-left: 3px solid #3b82f6;
+}
+
+.brand-list-item.disabled {
+    opacity: 0.5;
+}
+
+.brand-list-name {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #374151;
+}
+
+/* Status badges */
+.badge {
+    font-size: 0.625rem;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 9999px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.badge-on {
+    background-color: #d1fae5;
+    color: #065f46;
+}
+
+.badge-off {
+    background-color: #e5e7eb;
+    color: #6b7280;
+}
+
+/* Brand panel - right panel */
+.brand-panel {
+    flex: 1;
+    padding: 24px 32px;
+    overflow-y: auto;
+}
+
+/* Toggle switch */
+.toggle-switch {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    position: relative;
+}
+
+.toggle-switch input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 44px;
+    height: 24px;
+    background: #d1d5db;
+    border-radius: 12px;
+    position: relative;
+    cursor: pointer;
+    transition: background-color 200ms;
+}
+
+.toggle-switch input[type="checkbox"]:checked {
+    background: #3b82f6;
+}
+
+.toggle-switch input[type="checkbox"]::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 200ms;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+.toggle-switch input[type="checkbox"]:checked::after {
+    transform: translateX(20px);
+}
+
+/* Model list */
+.model-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.model-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    background: #ffffff;
+}
+
+.model-item.preset {
+    border-left: 3px solid #9ca3af;
+}
+
+.model-item.custom {
+    border-left: 3px solid #3b82f6;
+}
+
+/* Add custom brand button */
+.btn-add-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #3b82f6;
+    background: #eff6ff;
+    border: 1px dashed #93c5fd;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 150ms;
+}
+
+.btn-add-brand:hover {
+    background: #dbeafe;
+}
+
+/* Delete brand button */
+.btn-delete-brand {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #dc2626;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 150ms;
+}
+
+.btn-delete-brand:hover {
+    background: #fee2e2;
+}

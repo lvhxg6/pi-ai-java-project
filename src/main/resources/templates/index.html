@@ -64,13 +64,30 @@
                 <h2 class="text-lg font-semibold" x-text="currentSession?.name || 'Select a chat'"></h2>
             </div>
             <div class="flex items-center gap-4">
-                <!-- Model Selector -->
+                <!-- Model Selector (grouped by brand) -->
                 <select x-model="selectedModel" 
                         @change="switchModel()"
+                        x-effect="
+                            let html = '';
+                            if (groupedModels && groupedModels.length > 0) {
+                                for (const group of groupedModels) {
+                                    html += '<optgroup label=&quot;' + group.brandName + '&quot;>';
+                                    for (const model of group.models) {
+                                        const val = model.provider + ':' + model.id;
+                                        const sel = val === selectedModel ? ' selected' : '';
+                                        html += '<option value=&quot;' + val + '&quot;' + sel + '>' + model.name + '</option>';
+                                    }
+                                    html += '</optgroup>';
+                                }
+                            } else {
+                                for (const model of models) {
+                                    const sel = model.id === selectedModel ? ' selected' : '';
+                                    html += '<option value=&quot;' + model.id + '&quot;' + sel + '>' + model.name + '</option>';
+                                }
+                            }
+                            $el.innerHTML = html;
+                        "
                         class="border rounded-lg px-3 py-2 text-sm">
-                    <template x-for="model in models" :key="model.id">
-                        <option :value="model.id" x-text="model.name"></option>
-                    </template>
                 </select>
                 
                 <!-- Context Usage -->

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.pi.chat.model.ConnectionStatus;
+import com.pi.chat.model.ModelEntry;
 import com.pi.chat.model.ProviderConfig;
 import com.pi.chat.util.ApiKeyEncryption;
 
@@ -272,7 +273,10 @@ public class ProviderConfigRepository {
             config.baseUrl(),
             config.createdAt(),
             config.updatedAt(),
-            config.status()
+            config.status(),
+            config.enabled(),
+            config.models(),
+            config.apiType()
         );
     }
     
@@ -290,7 +294,10 @@ public class ProviderConfigRepository {
             config.baseUrl(),
             config.createdAt(),
             config.updatedAt(),
-            config.status()
+            config.status(),
+            config.enabled(),
+            config.models(),
+            config.apiType()
         );
     }
     
@@ -316,6 +323,8 @@ public class ProviderConfigRepository {
     
     /**
      * DTO for JSON serialization of ProviderConfig.
+     * Includes new fields (enabled, models, apiType) for brand support.
+     * Old JSON without these fields will deserialize them as defaults (null/false).
      */
     private record ProviderConfigDto(
         @JsonProperty("id") String id,
@@ -325,7 +334,10 @@ public class ProviderConfigRepository {
         @JsonProperty("baseUrl") String baseUrl,
         @JsonProperty("createdAt") Instant createdAt,
         @JsonProperty("updatedAt") Instant updatedAt,
-        @JsonProperty("status") ConnectionStatus status
+        @JsonProperty("status") ConnectionStatus status,
+        @JsonProperty("enabled") Boolean enabled,
+        @JsonProperty("models") List<ModelEntry> models,
+        @JsonProperty("apiType") String apiType
     ) {
         static ProviderConfigDto fromProviderConfig(ProviderConfig config) {
             return new ProviderConfigDto(
@@ -336,7 +348,10 @@ public class ProviderConfigRepository {
                 config.baseUrl(),
                 config.createdAt(),
                 config.updatedAt(),
-                config.status()
+                config.status(),
+                config.enabled(),
+                config.models(),
+                config.apiType()
             );
         }
         
@@ -349,7 +364,10 @@ public class ProviderConfigRepository {
                 baseUrl,
                 createdAt != null ? createdAt : Instant.now(),
                 updatedAt != null ? updatedAt : Instant.now(),
-                status != null ? status : ConnectionStatus.UNKNOWN
+                status != null ? status : ConnectionStatus.UNKNOWN,
+                enabled != null ? enabled : true,
+                models != null ? models : List.of(),
+                apiType
             );
         }
     }

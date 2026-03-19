@@ -2,6 +2,7 @@ package com.pi.chat.config;
 
 import com.pi.chat.auth.WebAuthStorage;
 import com.pi.chat.repository.ProviderConfigRepository;
+import com.pi.chat.service.BrandService;
 import com.pi.chat.service.ChatService;
 import com.pi.chat.service.ModelService;
 import com.pi.chat.service.ProviderService;
@@ -161,6 +162,26 @@ public class AiChatConfig {
     @Bean
     public ModelService modelService(CodingModelRegistry modelRegistry) {
         return new ModelService(modelRegistry);
+    }
+    
+    /**
+     * Creates the BrandService bean.
+     *
+     * <p>Manages brand CRUD operations, model management, and SDK synchronization.
+     * Calls syncAllOnStartup() to sync existing brand configs to the registry.
+     *
+     * <p>Requirements:
+     * <ul>
+     *   <li>6.5 - Sync brands to CodingModelRegistry on startup</li>
+     * </ul>
+     */
+    @Bean
+    public BrandService brandService(ProviderConfigRepository repository,
+                                     CodingModelRegistry modelRegistry,
+                                     WebAuthStorage webAuthStorage) {
+        BrandService service = new BrandService(repository, modelRegistry, webAuthStorage);
+        service.syncAllOnStartup();
+        return service;
     }
     
     /**

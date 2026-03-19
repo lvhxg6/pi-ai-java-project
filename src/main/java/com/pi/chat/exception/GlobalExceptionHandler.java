@@ -49,6 +49,26 @@ public class GlobalExceptionHandler {
     }
     
     /**
+     * Handles brand not found exceptions.
+     */
+    @ExceptionHandler(BrandNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleBrandNotFound(BrandNotFoundException e) {
+        log.debug("Brand not found: {}", e.getBrandId());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(ErrorResponse.of("NOT_FOUND", e.getMessage()));
+    }
+
+    /**
+     * Handles illegal brand operation exceptions (e.g., deleting a predefined brand).
+     */
+    @ExceptionHandler(IllegalBrandOperationException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalBrandOperation(IllegalBrandOperationException e) {
+        log.debug("Illegal brand operation: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+            .body(ErrorResponse.of("FORBIDDEN", e.getMessage()));
+    }
+
+    /**
      * Handles validation exceptions from @Valid annotations.
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)

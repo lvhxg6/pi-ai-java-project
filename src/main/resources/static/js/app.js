@@ -12,6 +12,7 @@ function chatApp() {
         currentSession: null,
         messages: [],
         models: [],
+        groupedModels: [],
         selectedModel: '',
         inputMessage: '',
         isStreaming: false,
@@ -46,18 +47,38 @@ function chatApp() {
             }
         },
 
-        // Load models
+        // Load models (grouped by brand)
         async loadModels() {
             try {
-                const response = await fetch('/api/models');
+                const response = await fetch('/api/models?grouped=true');
                 if (response.ok) {
-                    this.models = await response.json();
+                    this.groupedModels = await response.json();
+                    // Build flat models list for backward compatibility
+                    this.models = [];
+                    for (const group of this.groupedModels) {
+                        for (const model of group.models) {
+                            this.models.push({...model, brandName: group.brandName});
+                        }
+                    }
+                    // Select first model if none selected
                     if (this.models.length > 0 && !this.selectedModel) {
-                        this.selectedModel = this.models[0].id;
+                        this.selectedModel = this.models[0].provider + ':' + this.models[0].id;
                     }
                 }
             } catch (error) {
-                console.error('Failed to load models:', error);
+                console.error('Failed to load grouped models:', error);
+                // Fallback to flat list
+                try {
+                    const response = await fetch('/api/models');
+                    if (response.ok) {
+                        this.models = await response.json();
+                        if (this.models.length > 0 && !this.selectedModel) {
+                            this.selectedModel = this.models[0].id;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Fallback also failed:', e);
+                }
             }
         },
 
@@ -156,8 +177,14 @@ function chatApp() {
             this.streamingContent = '';
 
             try {
+                // Parse provider:modelId format for the SSE URL
+                let modelIdParam = this.selectedModel;
+                if (this.selectedModel.includes(':')) {
+                    modelIdParam = this.selectedModel.split(':').slice(1).join(':');
+                }
+
                 this.eventSource = new EventSource(
-                    `/api/chat/${this.currentSessionId}/message?content=${encodeURIComponent(message)}&modelId=${this.selectedModel}`
+                    `/api/chat/${this.currentSessionId}/message?content=${encodeURIComponent(message)}&modelId=${modelIdParam}`
                 );
 
                 this.eventSource.onmessage = (event) => {
@@ -227,11 +254,20 @@ function chatApp() {
         async switchModel() {
             if (!this.currentSessionId || !this.selectedModel) return;
             
+            // Parse provider:modelId format
+            let provider = '';
+            let modelId = this.selectedModel;
+            if (this.selectedModel.includes(':')) {
+                const parts = this.selectedModel.split(':');
+                provider = parts[0];
+                modelId = parts.slice(1).join(':');
+            }
+            
             try {
                 await fetch(`/api/chat/${this.currentSessionId}/model`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ modelId: this.selectedModel })
+                    body: JSON.stringify({ provider: provider, modelId: modelId })
                 });
                 await this.loadContextUsage(this.currentSessionId);
             } catch (error) {
@@ -274,106 +310,241 @@ function chatApp() {
     };
 }
 
-// Settings Application
+// Settings Application - Brand Management
 function settingsApp() {
     return {
         // State
-        providers: [],
-        showAddForm: false,
-        editingProvider: null,
-        formData: {
-            name: '',
-            providerId: '',
-            apiKey: ''
+        brands: [],
+        selectedBrandId: null,
+        selectedBrand: null,
+        editApiKey: '',
+        editBaseUrl: '',
+        editEnabled: true,
+        showApiKey: false,
+        loading: false,
+        message: '',
+        messageType: '',
+
+        // New model form
+        newModelId: '',
+        newModelName: '',
+        newModelContextWindow: 128000,
+        newModelMaxTokens: 4096,
+        showAddModel: false,
+
+        // New custom brand form
+        showAddBrand: false,
+        newBrandName: '',
+        newBrandBaseUrl: '',
+        newBrandApiKey: '',
+
+        // Lifecycle
+        init() {
+            this.loadBrands();
         },
 
-        // Initialize
-        async init() {
-            await this.loadProviders();
-        },
-
-        // Load providers
-        async loadProviders() {
+        // Load all brands
+        async loadBrands() {
             try {
-                const response = await fetch('/api/providers');
+                const response = await fetch('/api/brands');
                 if (response.ok) {
-                    this.providers = await response.json();
+                    this.brands = await response.json();
                 }
             } catch (error) {
-                console.error('Failed to load providers:', error);
+                console.error('Failed to load brands:', error);
             }
         },
 
-        // Edit provider
-        editProvider(provider) {
-            this.editingProvider = provider;
-            this.formData = {
-                name: provider.name,
-                providerId: provider.providerId,
-                apiKey: ''
-            };
+        // Select a brand and load its details
+        async selectBrand(brandId) {
+            try {
+                const response = await fetch('/api/brands/' + brandId);
+                if (response.ok) {
+                    this.selectedBrand = await response.json();
+                    this.selectedBrandId = brandId;
+                    this.editApiKey = '';
+                    this.editBaseUrl = this.selectedBrand.baseUrl || '';
+                    this.editEnabled = this.selectedBrand.enabled;
+                    this.showApiKey = false;
+                    this.showAddModel = false;
+                    this.message = '';
+                }
+            } catch (error) {
+                console.error('Failed to load brand:', error);
+            }
         },
 
-        // Save provider
-        async saveProvider() {
+        // Save brand configuration (API Key, Base URL, enabled)
+        async saveBrand() {
+            if (!this.selectedBrand) return;
+            this.loading = true;
+            this.message = '';
+
             try {
-                const url = this.editingProvider 
-                    ? `/api/providers/${this.editingProvider.id}`
-                    : '/api/providers';
-                const method = this.editingProvider ? 'PUT' : 'POST';
-                
                 const body = {
-                    name: this.formData.name,
-                    providerId: this.formData.providerId
+                    baseUrl: this.editBaseUrl,
+                    enabled: this.editEnabled
                 };
-                if (this.formData.apiKey) {
-                    body.apiKey = this.formData.apiKey;
+                // Only send apiKey if user typed something new
+                if (this.editApiKey) {
+                    body.apiKey = this.editApiKey;
                 }
 
-                const response = await fetch(url, {
-                    method: method,
+                const response = await fetch('/api/brands/' + this.selectedBrand.id, {
+                    method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
 
                 if (response.ok) {
-                    await this.loadProviders();
-                    this.closeForm();
+                    this.showMessage('Configuration saved successfully', 'success');
+                    await this.loadBrands();
+                    await this.selectBrand(this.selectedBrand.id);
                 } else {
                     const error = await response.json();
-                    alert('Error: ' + error.message);
+                    this.showMessage(error.message || 'Failed to save', 'error');
                 }
             } catch (error) {
-                console.error('Failed to save provider:', error);
-                alert('Failed to save provider');
+                console.error('Failed to save brand:', error);
+                this.showMessage('Failed to save configuration', 'error');
+            } finally {
+                this.loading = false;
             }
         },
 
-        // Delete provider
-        async deleteProvider(providerId) {
-            if (!confirm('Delete this provider?')) return;
-            
+        // Toggle enabled status
+        async toggleEnabled(brandId, enabled) {
             try {
-                const response = await fetch(`/api/providers/${providerId}`, {
+                const response = await fetch('/api/brands/' + brandId, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: enabled })
+                });
+
+                if (response.ok) {
+                    await this.loadBrands();
+                    await this.selectBrand(brandId);
+                } else {
+                    const error = await response.json();
+                    this.showMessage(error.message || 'Failed to toggle', 'error');
+                }
+            } catch (error) {
+                console.error('Failed to toggle enabled:', error);
+            }
+        },
+
+        // Create a custom brand
+        async createCustomBrand() {
+            try {
+                const response = await fetch('/api/brands', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: this.newBrandName,
+                        baseUrl: this.newBrandBaseUrl,
+                        apiKey: this.newBrandApiKey
+                    })
+                });
+
+                if (response.ok) {
+                    const brand = await response.json();
+                    this.showAddBrand = false;
+                    this.newBrandName = '';
+                    this.newBrandBaseUrl = '';
+                    this.newBrandApiKey = '';
+                    await this.loadBrands();
+                    await this.selectBrand(brand.id);
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + (error.message || 'Failed to create brand'));
+                }
+            } catch (error) {
+                console.error('Failed to create brand:', error);
+                alert('Failed to create brand');
+            }
+        },
+
+        // Delete a custom brand
+        async deleteCustomBrand(brandId) {
+            if (!confirm('Delete this brand and all its configuration?')) return;
+
+            try {
+                const response = await fetch('/api/brands/' + brandId, {
                     method: 'DELETE'
                 });
+
                 if (response.ok) {
-                    await this.loadProviders();
+                    this.selectedBrand = null;
+                    this.selectedBrandId = null;
+                    await this.loadBrands();
+                } else {
+                    const error = await response.json();
+                    this.showMessage(error.message || 'Failed to delete', 'error');
                 }
             } catch (error) {
-                console.error('Failed to delete provider:', error);
+                console.error('Failed to delete brand:', error);
             }
         },
 
-        // Close form
-        closeForm() {
-            this.showAddForm = false;
-            this.editingProvider = null;
-            this.formData = {
-                name: '',
-                providerId: '',
-                apiKey: ''
+        // Add a custom model to the selected brand
+        async addModel() {
+            if (!this.selectedBrand || !this.newModelId || !this.newModelName) return;
+
+            const newModel = {
+                id: this.newModelId,
+                name: this.newModelName,
+                contextWindow: this.newModelContextWindow || 128000,
+                maxTokens: this.newModelMaxTokens || 4096,
+                custom: true
             };
+
+            const models = [...(this.selectedBrand.models || []), newModel];
+            await this.saveModels(models);
+
+            // Reset form
+            this.newModelId = '';
+            this.newModelName = '';
+            this.newModelContextWindow = 128000;
+            this.newModelMaxTokens = 4096;
+            this.showAddModel = false;
+        },
+
+        // Remove a custom model from the selected brand
+        async removeModel(modelId) {
+            if (!this.selectedBrand) return;
+            const models = (this.selectedBrand.models || []).filter(m => m.id !== modelId);
+            await this.saveModels(models);
+        },
+
+        // Save the model list for the selected brand
+        async saveModels(models) {
+            if (!this.selectedBrand) return;
+
+            try {
+                const response = await fetch('/api/brands/' + this.selectedBrand.id + '/models', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ models: models })
+                });
+
+                if (response.ok) {
+                    await this.selectBrand(this.selectedBrand.id);
+                    this.showMessage('Models updated', 'success');
+                } else {
+                    const error = await response.json();
+                    this.showMessage(error.message || 'Failed to update models', 'error');
+                }
+            } catch (error) {
+                console.error('Failed to save models:', error);
+                this.showMessage('Failed to update models', 'error');
+            }
+        },
+
+        // Show a temporary message
+        showMessage(msg, type) {
+            this.message = msg;
+            this.messageType = type;
+            setTimeout(() => { this.message = ''; }, 3000);
         }
     };
 }
