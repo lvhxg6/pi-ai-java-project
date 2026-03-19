@@ -8,6 +8,7 @@ import com.pi.agent.types.MessageAdapter;
 import com.pi.ai.core.event.AssistantMessageEvent;
 import com.pi.ai.core.types.AssistantMessage;
 import com.pi.ai.core.types.Model;
+import com.pi.ai.core.types.StopReason;
 import com.pi.ai.core.types.TextContent;
 import com.pi.ai.core.types.UserMessage;
 import com.pi.chat.dto.ChatEvent;
@@ -270,8 +271,11 @@ public class ChatService {
     }
     
     private void handleAgentEvent(String sessionId, AgentEvent event) {
+        log.debug("Received agent event for session {}: {}", sessionId, event.getClass().getSimpleName());
+        
         SseEmitter emitter = activeEmitters.get(sessionId);
         if (emitter == null) {
+            log.warn("No emitter found for session: {}", sessionId);
             return;
         }
         
@@ -280,6 +284,7 @@ public class ChatService {
         // Convert AgentEvent to ChatEvent
         ChatEvent chatEvent = convertEvent(event, messageId);
         if (chatEvent != null) {
+            log.debug("Sending chat event: {}", chatEvent.getClass().getSimpleName());
             sendEvent(emitter, chatEvent);
         }
         
@@ -309,12 +314,25 @@ public class ChatService {
         } else if (event instanceof AgentEvent.MessageEnd messageEnd) {
             // Extract full content from the message
             AgentMessage msg = messageEnd.message();
+            log.debug("MessageEnd received, message type: {}", msg.getClass().getSimpleName());
             if (msg instanceof MessageAdapter adapter) {
-                if (adapter.message() instanceof AssistantMessage assistantMsg) {
+                Object innerMsg = adapter.message();
+                log.debug("Inner message type: {}", innerMsg != null ? innerMsg.getClass().getSimpleName() : "null");
+                if (innerMsg instanceof AssistantMessage assistantMsg) {
+                    log.debug("AssistantMessage - stopReason: {}, errorMessage: {}, content size: {}", 
+                        assistantMsg.getStopReason(), 
+                        assistantMsg.getErrorMessage(),
+                        assistantMsg.getContent() != null ? assistantMsg.getContent().size() : 0);
                     // Check for error in the message
                     if (assistantMsg.getErrorMessage() != null && !assistantMsg.getErrorMessage().isEmpty()) {
                         log.error("Agent returned error: {}", assistantMsg.getErrorMessage());
                         return new ChatEvent.Error("API_ERROR", assistantMsg.getErrorMessage());
+                    }
+                    // Check for error stop reason
+                    if (assistantMsg.getStopReason() == StopReason.ERROR) {
+                        String errorMsg = "API call failed";
+                        log.error("Agent returned error stop reason");
+                        return new ChatEvent.Error("API_ERROR", errorMsg);
                     }
                     String content = extractTextContent(assistantMsg);
                     return new ChatEvent.TextEnd(messageId, content);

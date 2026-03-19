@@ -1,5 +1,6 @@
 package com.pi.chat.config;
 
+import com.pi.ai.provider.builtin.BuiltInProviders;
 import com.pi.chat.auth.WebAuthStorage;
 import com.pi.chat.repository.ProviderConfigRepository;
 import com.pi.chat.service.BrandService;
@@ -30,6 +31,7 @@ import java.util.concurrent.Executor;
  *   <li>Enable configuration properties binding</li>
  *   <li>Configure async task executor for SSE streaming</li>
  *   <li>Initialize required directories</li>
+ *   <li>Register built-in API providers</li>
  * </ul>
  * 
  * <p>Requirements:
@@ -50,10 +52,13 @@ public class AiChatConfig {
     }
     
     /**
-     * Initialize required directories on application startup.
+     * Initialize required directories and register API providers on application startup.
      */
     @PostConstruct
     public void initDirectories() throws IOException {
+        // Register built-in API providers (Anthropic, OpenAI, etc.)
+        BuiltInProviders.registerBuiltInApiProviders();
+        
         // Create session storage directory
         Path sessionsDir = Path.of(properties.session().storageDir());
         if (!Files.exists(sessionsDir)) {
