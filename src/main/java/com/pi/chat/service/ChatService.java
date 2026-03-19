@@ -311,8 +311,26 @@ public class ChatService {
             AgentMessage msg = messageEnd.message();
             if (msg instanceof MessageAdapter adapter) {
                 if (adapter.message() instanceof AssistantMessage assistantMsg) {
+                    // Check for error in the message
+                    if (assistantMsg.getErrorMessage() != null && !assistantMsg.getErrorMessage().isEmpty()) {
+                        log.error("Agent returned error: {}", assistantMsg.getErrorMessage());
+                        return new ChatEvent.Error("API_ERROR", assistantMsg.getErrorMessage());
+                    }
                     String content = extractTextContent(assistantMsg);
                     return new ChatEvent.TextEnd(messageId, content);
+                }
+            }
+            return null;
+        } else if (event instanceof AgentEvent.AgentEnd agentEnd) {
+            // Handle agent end event - check for errors in the final messages
+            for (AgentMessage msg : agentEnd.messages()) {
+                if (msg instanceof MessageAdapter adapter) {
+                    if (adapter.message() instanceof AssistantMessage assistantMsg) {
+                        if (assistantMsg.getErrorMessage() != null && !assistantMsg.getErrorMessage().isEmpty()) {
+                            log.error("Agent ended with error: {}", assistantMsg.getErrorMessage());
+                            return new ChatEvent.Error("API_ERROR", assistantMsg.getErrorMessage());
+                        }
+                    }
                 }
             }
             return null;
