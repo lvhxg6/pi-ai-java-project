@@ -4,6 +4,8 @@ import com.pi.agent.Agent;
 import com.pi.agent.event.AgentEvent;
 import com.pi.agent.types.AgentMessage;
 import com.pi.agent.types.AgentOptions;
+import com.pi.agent.types.AgentTool;
+import com.pi.agent.types.AgentToolResult;
 import com.pi.agent.types.MessageAdapter;
 import com.pi.ai.core.event.AssistantMessageEvent;
 import com.pi.ai.core.types.AssistantMessage;
@@ -62,6 +64,7 @@ public class ChatService {
     private final BrandService brandService;
     private final SettingsManager settingsManager;
     private final ResourceLoader resourceLoader;  // Optional, can be null
+    private final ToolRegistry toolRegistry;
     
     private final Map<String, AgentSession> activeSessions = new ConcurrentHashMap<>();
     private final Map<String, SseEmitter> activeEmitters = new ConcurrentHashMap<>();
@@ -76,16 +79,19 @@ public class ChatService {
      * @param brandService    Brand configuration service
      * @param settingsManager Settings manager for AgentSession configuration
      * @param resourceLoader  Resource loader for Skills (optional, can be null)
+     * @param toolRegistry    Tool registry for managing available tools
      */
     public ChatService(SessionService sessionService, ModelService modelService, 
                        CodingModelRegistry modelRegistry, BrandService brandService,
-                       SettingsManager settingsManager, ResourceLoader resourceLoader) {
+                       SettingsManager settingsManager, ResourceLoader resourceLoader,
+                       ToolRegistry toolRegistry) {
         this.sessionService = Objects.requireNonNull(sessionService);
         this.modelService = Objects.requireNonNull(modelService);
         this.modelRegistry = Objects.requireNonNull(modelRegistry);
         this.brandService = Objects.requireNonNull(brandService);
         this.settingsManager = Objects.requireNonNull(settingsManager);
         this.resourceLoader = resourceLoader;  // Optional
+        this.toolRegistry = Objects.requireNonNull(toolRegistry);
     }
     
     /**
@@ -327,6 +333,13 @@ public class ChatService {
             // Load existing messages
             agent.replaceMessages(context.messages());
             
+            // 获取工具列表并设置到 Agent
+            List<AgentTool> tools = toolRegistry.getAllTools();
+            agent.setTools(tools);
+            
+            // 配置 activeToolNames
+            List<String> activeToolNames = toolRegistry.getToolNames();
+            
             // Create AgentSessionConfig
             String cwd = System.getProperty("user.dir");
             AgentSessionConfig config = new AgentSessionConfig(
@@ -338,7 +351,7 @@ public class ChatService {
                 resourceLoader,      // can be null
                 List.of(),           // customTools (not used in web chat)
                 modelRegistry,
-                List.of()            // initialActiveToolNames
+                activeToolNames      // 关键：传入工具名称列表
             );
             
             // Create AgentSession
@@ -361,6 +374,9 @@ public class ChatService {
      *   <li>ResourceChangeSessionEvent - Skills hot-reload notification, should be ignored for SSE</li>
      * </ul>
      * 
+     * <p>Tool execution events (ToolExecutionStart, ToolExecutionEnd) are handled directly
+     * with dedicated methods for proper result formatting.
+     * 
      * @param sessionId The session ID
      * @param event     The AgentSession event
      */
@@ -374,8 +390,113 @@ public class ChatService {
         // Handle AgentEventWrapper - extract and process the inner AgentEvent
         if (event instanceof AgentSession.AgentEventWrapper wrapper) {
             AgentEvent agentEvent = wrapper.event();
-            handleAgentEvent(sessionId, agentEvent);
+            
+            // Handle tool execution events directly with dedicated methods
+            if (agentEvent instanceof AgentEvent.ToolExecutionStart toolStart) {
+                handleToolExecutionStart(sessionId, toolStart);
+            } else if (agentEvent instanceof AgentEvent.ToolExecutionEnd toolEnd) {
+                handleToolExecutionEnd(sessionId, toolEnd);
+            } else {
+                // Handle other events (existing logic)
+                handleAgentEvent(sessionId, agentEvent);
+            }
         }
+    }
+    
+    /**
+     * Handles ToolExecutionStart event by creating and sending a ToolCallStart ChatEvent.
+     * 
+     * <p>Extracts toolCallId and toolName from the event and sends them to the frontend
+     * via SSE to indicate that a tool execution has started.
+     * 
+     * @param sessionId The session ID
+     * @param event     The ToolExecutionStart event
+     */
+    private void handleToolExecutionStart(String sessionId, AgentEvent.ToolExecutionStart event) {
+        SseEmitter emitter = activeEmitters.get(sessionId);
+        if (emitter == null) {
+            log.warn("No emitter found for session: {} when handling ToolExecutionStart", sessionId);
+            return;
+        }
+        
+        String messageId = currentMessageIds.getOrDefault(sessionId, UUID.randomUUID().toString());
+        ChatEvent chatEvent = new ChatEvent.ToolCallStart(
+            messageId,
+            event.toolCallId(),
+            event.toolName()
+        );
+        
+        log.debug("Sending ToolCallStart event for session {}: toolCallId={}, toolName={}", 
+            sessionId, event.toolCallId(), event.toolName());
+        sendEvent(emitter, chatEvent);
+    }
+    
+    /**
+     * Handles ToolExecutionEnd event by creating and sending a ToolCallEnd ChatEvent.
+     * 
+     * <p>Formats the tool execution result using {@link #formatToolResult(AgentToolResult)}
+     * and sends it to the frontend via SSE. If the tool execution resulted in an error
+     * (isError=true), the error is properly formatted and the isError flag is set in the event.
+     * 
+     * <p>Requirements: 10.1, 10.2, 10.3, 10.4 - Error handling for tool execution
+     * 
+     * @param sessionId The session ID
+     * @param event     The ToolExecutionEnd event
+     */
+    private void handleToolExecutionEnd(String sessionId, AgentEvent.ToolExecutionEnd toolEnd) {
+        SseEmitter emitter = activeEmitters.get(sessionId);
+        if (emitter == null) {
+            log.warn("No emitter found for session: {} when handling ToolExecutionEnd", sessionId);
+            return;
+        }
+        
+        String messageId = currentMessageIds.getOrDefault(sessionId, UUID.randomUUID().toString());
+        boolean isError = toolEnd.isError();
+        String result = formatToolResult(toolEnd.result());
+        
+        // If this is an error, ensure the result has an error prefix for clarity
+        if (isError && result != null && !result.startsWith("Error:")) {
+            result = "Error: " + result;
+        }
+        
+        ChatEvent chatEvent = new ChatEvent.ToolCallEnd(
+            messageId,
+            toolEnd.toolCallId(),
+            result,
+            isError
+        );
+        
+        if (isError) {
+            log.warn("Tool execution error for session {}: toolCallId={}, toolName={}, error={}", 
+                sessionId, toolEnd.toolCallId(), toolEnd.toolName(), result);
+        } else {
+            log.debug("Sending ToolCallEnd event for session {}: toolCallId={}, result length={}", 
+                sessionId, toolEnd.toolCallId(), result != null ? result.length() : 0);
+        }
+        sendEvent(emitter, chatEvent);
+    }
+    
+    /**
+     * Formats an AgentToolResult into a string representation.
+     * 
+     * <p>Extracts TextContent from the result's content blocks and concatenates them
+     * with newlines. Returns "(no output)" if the result is null or has no content.
+     * 
+     * @param result The AgentToolResult to format
+     * @return The formatted result string
+     */
+    private String formatToolResult(AgentToolResult<?> result) {
+        if (result == null || result.content() == null) {
+            return "(no output)";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (var block : result.content()) {
+            if (block instanceof TextContent text) {
+                if (sb.length() > 0) sb.append("\n");
+                sb.append(text.text());
+            }
+        }
+        return sb.length() > 0 ? sb.toString() : "(no output)";
     }
     
     private void handleAgentEvent(String sessionId, AgentEvent event) {
@@ -457,12 +578,9 @@ public class ChatService {
                 }
             }
             return null;
-        } else if (event instanceof AgentEvent.ToolExecutionStart toolStart) {
-            return new ChatEvent.ToolCallStart(messageId, toolStart.toolCallId(), toolStart.toolName());
-        } else if (event instanceof AgentEvent.ToolExecutionEnd toolEnd) {
-            String result = toolEnd.result() != null ? toolEnd.result().toString() : null;
-            return new ChatEvent.ToolCallEnd(messageId, toolEnd.toolCallId(), result);
         }
+        // Note: ToolExecutionStart and ToolExecutionEnd are handled by dedicated methods
+        // (handleToolExecutionStart and handleToolExecutionEnd) in handleAgentSessionEvent
         return null;
     }
     

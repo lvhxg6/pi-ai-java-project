@@ -23,6 +23,8 @@ function chatApp() {
             contextWindow: 128000,
             usagePercent: 0
         },
+        // Tool calls state
+        currentToolCalls: {},
 
         // Initialize
         async init() {
@@ -303,11 +305,15 @@ function chatApp() {
                     this.finishStreaming();
                     alert('Error: ' + (event.message || 'Unknown error'));
                     break;
+                case 'tool_call_start':
+                    this.handleToolCallStart(event);
+                    break;
+                case 'tool_call_end':
+                    this.handleToolCallEnd(event);
+                    break;
                 case 'text_start':
                 case 'thinking_start':
                 case 'thinking_end':
-                case 'tool_call_start':
-                case 'tool_call_end':
                 case 'compaction_notice':
                     // Acknowledged but no UI action needed
                     break;
@@ -317,10 +323,59 @@ function chatApp() {
             }
         },
 
+        // Handle tool call start event
+        handleToolCallStart(event) {
+            const toolCallId = event.toolCallId;
+            const toolName = event.toolName;
+            
+            this.currentToolCalls[toolCallId] = {
+                toolName: toolName,
+                status: 'running',
+                result: null,
+                expanded: false
+            };
+            this.scrollToBottom();
+        },
+
+        // Handle tool call end event
+        handleToolCallEnd(event) {
+            const toolCallId = event.toolCallId;
+            const result = event.result;
+            const isError = event.isError || false;
+            
+            if (this.currentToolCalls[toolCallId]) {
+                this.currentToolCalls[toolCallId].status = isError ? 'error' : 'completed';
+                this.currentToolCalls[toolCallId].result = result;
+                this.currentToolCalls[toolCallId].isError = isError;
+            }
+            this.scrollToBottom();
+        },
+
+        // Toggle tool call result expansion
+        toggleToolCallExpand(toolCallId) {
+            if (this.currentToolCalls[toolCallId]) {
+                this.currentToolCalls[toolCallId].expanded = !this.currentToolCalls[toolCallId].expanded;
+            }
+        },
+
+        // Get tool calls as array for rendering
+        getToolCallsArray() {
+            return Object.entries(this.currentToolCalls).map(([id, call]) => ({
+                id: id,
+                ...call
+            }));
+        },
+
+        // Check if there are any active tool calls
+        hasActiveToolCalls() {
+            return Object.keys(this.currentToolCalls).length > 0;
+        },
+
         // Finish streaming
         finishStreaming() {
             this.isStreaming = false;
             this.streamingContent = '';
+            this.currentToolCalls = {};
             if (this.abortController) {
                 this.abortController.abort();
                 this.abortController = null;

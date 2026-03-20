@@ -9,6 +9,7 @@ import com.pi.chat.service.ModelService;
 import com.pi.chat.service.ProviderService;
 import com.pi.chat.service.SessionService;
 import com.pi.chat.service.SkillsService;
+import com.pi.chat.service.ToolRegistry;
 import com.pi.chat.session.SessionManagerFactory;
 import com.pi.coding.model.CodingModelRegistry;
 import com.pi.coding.resource.DefaultResourceLoader;
@@ -257,6 +258,24 @@ public class AiChatConfig {
     }
     
     /**
+     * Creates the ToolRegistry Bean.
+     * 
+     * <p>Manages available AgentTool instances for tool calling.
+     * Registers default tools (bash, read, edit) on initialization.
+     * 
+     * <p>Requirements:
+     * <ul>
+     *   <li>2.1 - ToolRegistry maintains a registry of available AgentTool instances</li>
+     *   <li>2.2 - ToolRegistry registers at least the BashTool on initialization</li>
+     * </ul>
+     */
+    @Bean
+    public ToolRegistry toolRegistry() {
+        String cwd = System.getProperty("user.dir");
+        return new ToolRegistry(cwd);
+    }
+    
+    /**
      * Creates the ChatService bean.
      * 
      * <p>Handles chat operations and message streaming.
@@ -265,15 +284,18 @@ public class AiChatConfig {
      * <ul>
      *   <li>6.3 - ChatService Bean with SettingsManager dependency</li>
      *   <li>6.4 - ChatService Bean with ResourceLoader dependency (optional)</li>
+     *   <li>2.3 - ChatService passes registered tools to the Agent via agent.setTools()</li>
+     *   <li>2.4 - ChatService updates the Agent's tool list when a new tool is registered</li>
      * </ul>
      */
     @Bean
     public ChatService chatService(SessionService sessionService, ModelService modelService,
                                    CodingModelRegistry modelRegistry, BrandService brandService,
                                    SettingsManager settingsManager,
-                                   @Autowired(required = false) ResourceLoader resourceLoader) {
+                                   @Autowired(required = false) ResourceLoader resourceLoader,
+                                   ToolRegistry toolRegistry) {
         return new ChatService(sessionService, modelService, modelRegistry, brandService,
-                               settingsManager, resourceLoader);
+                               settingsManager, resourceLoader, toolRegistry);
     }
     
     /**

@@ -66,8 +66,20 @@ public sealed interface ChatEvent {
     
     /**
      * Tool call ended with result.
+     * 
+     * @param messageId  The message ID
+     * @param toolCallId The tool call ID
+     * @param result     The tool execution result (or error message if isError is true)
+     * @param isError    Whether the tool execution resulted in an error
      */
-    record ToolCallEnd(String messageId, String toolCallId, String result) implements ChatEvent {}
+    record ToolCallEnd(String messageId, String toolCallId, String result, boolean isError) implements ChatEvent {
+        /**
+         * Creates a ToolCallEnd event for a successful tool execution.
+         */
+        public ToolCallEnd(String messageId, String toolCallId, String result) {
+            this(messageId, toolCallId, result, false);
+        }
+    }
     
     /**
      * Message generation completed.
