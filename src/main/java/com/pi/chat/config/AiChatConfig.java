@@ -248,7 +248,7 @@ public class AiChatConfig {
     @Bean
     public ResourceLoader resourceLoader(SettingsManager settingsManager) {
         String cwd = System.getProperty("user.dir");
-        String agentDir = System.getProperty("user.home") + "/.pi";
+        String agentDir = System.getProperty("user.home") + "/.kiro";
         ResourceLoaderConfig config = new ResourceLoaderConfig(cwd, agentDir, settingsManager);
         DefaultResourceLoader loader = new DefaultResourceLoader(config);
         // Start watching for file changes
