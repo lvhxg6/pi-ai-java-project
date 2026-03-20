@@ -3,7 +3,11 @@ package com.pi.chat.service;
 import com.pi.agent.types.AgentTool;
 import com.pi.coding.tool.BashTool;
 import com.pi.coding.tool.EditTool;
+import com.pi.coding.tool.FindTool;
+import com.pi.coding.tool.GrepTool;
+import com.pi.coding.tool.LsTool;
 import com.pi.coding.tool.ReadTool;
+import com.pi.coding.tool.WriteTool;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 工具注册表，管理可用的 AgentTool 实例。
  * <p>
  * 使用 ConcurrentHashMap 保证线程安全，支持工具的注册、查找和获取。
- * 初始化时自动注册默认工具（bash、read、edit）。
+ * 初始化时自动注册默认工具（bash、read、edit、write、grep、find、ls）。
  * <p>
  * Validates: Requirements 2.1, 2.5
  */
@@ -42,13 +46,16 @@ public class ToolRegistry {
     }
 
     /**
-     * 注册默认工具（bash、read、edit 等）。
+     * 注册默认工具（bash、read、edit、write、grep、find、ls）。
      */
     private void registerDefaultTools() {
         register(new BashTool(cwd));
         register(new ReadTool(cwd));
         register(new EditTool(cwd));
-        // 可扩展更多工具
+        register(new WriteTool(cwd));
+        register(new GrepTool(cwd));
+        register(new FindTool(cwd));
+        register(new LsTool(cwd));
     }
 
     /**
