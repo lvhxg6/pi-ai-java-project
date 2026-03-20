@@ -12,11 +12,14 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/sse.js"></script>
     
-    <!-- Alpine.js -->
-    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    
     <!-- Marked.js for Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- Custom scripts (must load before Alpine.js) -->
+    <script defer th:src="@{/js/app.js?v=2}"></script>
+    
+    <!-- Alpine.js (must load after app.js to find component functions) -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     
     <!-- Custom styles -->
     <link rel="stylesheet" th:href="@{/css/app.css}">
@@ -27,8 +30,5 @@
 </head>
 <body class="bg-gray-100 min-h-screen">
     <div th:replace="~{::content}">Content goes here</div>
-    
-    <!-- Custom scripts -->
-    <script th:src="@{/js/app.js}"></script>
 </body>
 </html>

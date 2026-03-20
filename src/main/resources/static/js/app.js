@@ -700,3 +700,233 @@ function settingsApp() {
         }
     };
 }
+
+
+// Skills Application - Skills Management
+function skillsApp() {
+    return {
+        // State
+        skills: [],
+        selectedSkillName: null,
+        selectedSkill: null,
+        isEditing: false,
+        showCreateForm: false,
+        showUploadForm: false,
+        showDeleteConfirm: false,
+        loading: false,
+        saving: false,
+        
+        // Counts
+        userSkillsCount: 0,
+        projectSkillsCount: 0,
+        lastReloadTimestamp: null,
+        
+        // Form data
+        newSkillName: '',
+        newSkillContent: '',
+        uploadSkillName: '',
+        uploadFile: null,
+        editContent: '',
+        
+        // Messages
+        message: '',
+        messageType: 'success',
+        
+        // Initialize
+        init() {
+            this.loadSkills();
+        },
+        
+        // Load all skills
+        async loadSkills() {
+            this.loading = true;
+            try {
+                const response = await fetch('/api/skills');
+                if (!response.ok) throw new Error('Failed to load skills');
+                const data = await response.json();
+                this.skills = data.skills;
+                this.userSkillsCount = data.userSkillsCount;
+                this.projectSkillsCount = data.projectSkillsCount;
+                this.lastReloadTimestamp = data.lastReloadTimestamp;
+            } catch (error) {
+                this.showMessage('Failed to load skills: ' + error.message, 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+        
+        // Select a skill
+        async selectSkill(skillName) {
+            this.selectedSkillName = skillName;
+            this.isEditing = false;
+            this.showCreateForm = false;
+            this.showUploadForm = false;
+            
+            try {
+                const response = await fetch('/api/skills/' + encodeURIComponent(skillName));
+                if (!response.ok) throw new Error('Failed to load skill');
+                this.selectedSkill = await response.json();
+            } catch (error) {
+                this.showMessage('Failed to load skill: ' + error.message, 'error');
+            }
+        },
+        
+        // Create new skill
+        async createSkill() {
+            this.saving = true;
+            try {
+                const response = await fetch('/api/skills', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: this.newSkillName,
+                        content: this.newSkillContent
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Failed to create skill');
+                }
+                
+                this.showMessage('Skill created successfully', 'success');
+                this.showCreateForm = false;
+                const skillName = this.newSkillName;
+                this.clearForm();
+                await this.loadSkills();
+                await this.selectSkill(skillName);
+            } catch (error) {
+                this.showMessage(error.message, 'error');
+            } finally {
+                this.saving = false;
+            }
+        },
+        
+        // Upload skill file
+        async uploadSkill() {
+            if (!this.uploadFile) return;
+            
+            this.saving = true;
+            try {
+                const formData = new FormData();
+                formData.append('file', this.uploadFile);
+                formData.append('skillName', this.uploadSkillName);
+                
+                const response = await fetch('/api/skills/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Failed to upload skill');
+                }
+                
+                this.showMessage('Skill uploaded successfully', 'success');
+                this.showUploadForm = false;
+                const skillName = this.uploadSkillName;
+                this.clearForm();
+                await this.loadSkills();
+                await this.selectSkill(skillName);
+            } catch (error) {
+                this.showMessage(error.message, 'error');
+            } finally {
+                this.saving = false;
+            }
+        },
+        
+        // Handle file selection
+        handleFileSelect(event) {
+            this.uploadFile = event.target.files[0];
+        },
+        
+        // Start editing
+        startEditing() {
+            this.editContent = this.selectedSkill.content;
+            this.isEditing = true;
+        },
+        
+        // Cancel editing
+        cancelEditing() {
+            this.isEditing = false;
+            this.editContent = '';
+        },
+        
+        // Save skill changes
+        async saveSkill() {
+            this.saving = true;
+            try {
+                const response = await fetch('/api/skills/' + encodeURIComponent(this.selectedSkill.name), {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: this.editContent })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Failed to update skill');
+                }
+                
+                this.showMessage('Skill updated successfully', 'success');
+                this.isEditing = false;
+                await this.loadSkills();
+                await this.selectSkill(this.selectedSkill.name);
+            } catch (error) {
+                this.showMessage(error.message, 'error');
+            } finally {
+                this.saving = false;
+            }
+        },
+        
+        // Confirm delete
+        confirmDelete() {
+            this.showDeleteConfirm = true;
+        },
+        
+        // Delete skill
+        async deleteSkill() {
+            this.saving = true;
+            try {
+                const response = await fetch('/api/skills/' + encodeURIComponent(this.selectedSkill.name), {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Failed to delete skill');
+                }
+                
+                this.showMessage('Skill deleted successfully', 'success');
+                this.showDeleteConfirm = false;
+                this.selectedSkill = null;
+                this.selectedSkillName = null;
+                await this.loadSkills();
+            } catch (error) {
+                this.showMessage(error.message, 'error');
+            } finally {
+                this.saving = false;
+            }
+        },
+        
+        // Clear form
+        clearForm() {
+            this.newSkillName = '';
+            this.newSkillContent = '';
+            this.uploadSkillName = '';
+            this.uploadFile = null;
+        },
+        
+        // Show message
+        showMessage(msg, type) {
+            this.message = msg;
+            this.messageType = type;
+            setTimeout(() => { this.message = ''; }, 5000);
+        },
+        
+        // Format timestamp
+        formatTimestamp(ts) {
+            if (!ts) return '';
+            return new Date(ts).toLocaleString();
+        }
+    };
+}
