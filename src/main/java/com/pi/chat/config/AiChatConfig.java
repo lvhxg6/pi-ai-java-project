@@ -10,7 +10,12 @@ import com.pi.chat.service.ProviderService;
 import com.pi.chat.service.SessionService;
 import com.pi.chat.session.SessionManagerFactory;
 import com.pi.coding.model.CodingModelRegistry;
+import com.pi.coding.resource.DefaultResourceLoader;
+import com.pi.coding.resource.ResourceLoader;
+import com.pi.coding.resource.ResourceLoaderConfig;
+import com.pi.coding.settings.SettingsManager;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -212,13 +217,61 @@ public class AiChatConfig {
     }
     
     /**
+     * Creates the SettingsManager bean.
+     * 
+     * <p>Manages settings from global (~/.pi/settings.json) and project (.pi/settings.json).
+     * 
+     * <p>Requirements:
+     * <ul>
+     *   <li>6.1 - SettingsManager Bean for AgentSession configuration</li>
+     * </ul>
+     */
+    @Bean
+    public SettingsManager settingsManager() {
+        String cwd = System.getProperty("user.dir");
+        return SettingsManager.create(cwd, ".pi");
+    }
+    
+    /**
+     * Creates the ResourceLoader bean (optional).
+     * 
+     * <p>Loads skills, prompts, and context files for AgentSession.
+     * Supports hot-reload of resources when files change.
+     * 
+     * <p>Requirements:
+     * <ul>
+     *   <li>6.2 - ResourceLoader Bean for Skills hot-reload</li>
+     *   <li>6.5 - ResourceLoader is optional dependency</li>
+     * </ul>
+     */
+    @Bean
+    public ResourceLoader resourceLoader(SettingsManager settingsManager) {
+        String cwd = System.getProperty("user.dir");
+        String agentDir = System.getProperty("user.home") + "/.pi";
+        ResourceLoaderConfig config = new ResourceLoaderConfig(cwd, agentDir, settingsManager);
+        DefaultResourceLoader loader = new DefaultResourceLoader(config);
+        // Start watching for file changes
+        loader.startWatching();
+        return loader;
+    }
+    
+    /**
      * Creates the ChatService bean.
      * 
      * <p>Handles chat operations and message streaming.
+     * 
+     * <p>Requirements:
+     * <ul>
+     *   <li>6.3 - ChatService Bean with SettingsManager dependency</li>
+     *   <li>6.4 - ChatService Bean with ResourceLoader dependency (optional)</li>
+     * </ul>
      */
     @Bean
     public ChatService chatService(SessionService sessionService, ModelService modelService,
-                                   CodingModelRegistry modelRegistry, BrandService brandService) {
-        return new ChatService(sessionService, modelService, modelRegistry, brandService);
+                                   CodingModelRegistry modelRegistry, BrandService brandService,
+                                   SettingsManager settingsManager,
+                                   @Autowired(required = false) ResourceLoader resourceLoader) {
+        return new ChatService(sessionService, modelService, modelRegistry, brandService,
+                               settingsManager, resourceLoader);
     }
 }

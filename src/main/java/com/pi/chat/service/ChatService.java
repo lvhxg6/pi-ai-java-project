@@ -15,8 +15,13 @@ import com.pi.chat.dto.ChatEvent;
 import com.pi.chat.dto.ContextUsage;
 import com.pi.chat.model.ModelEntry;
 import com.pi.coding.model.CodingModelRegistry;
+import com.pi.coding.resource.ResourceLoader;
+import com.pi.coding.session.AgentSession;
+import com.pi.coding.session.AgentSessionConfig;
+import com.pi.coding.session.AgentSessionEvent;
 import com.pi.coding.session.SessionContext;
 import com.pi.coding.session.SessionManager;
+import com.pi.coding.settings.SettingsManager;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,15 +37,19 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Service for handling chat operations.
  * 
- * <p>Manages Agent instances per session and handles message streaming.
+ * <p>Manages AgentSession instances per session and handles message streaming.
+ * Uses AgentSession for automatic message persistence, auto-retry, auto-compaction,
+ * and Skills hot-reload support.
  * 
  * <p>Requirements:
  * <ul>
  *   <li>4.1 - Send user message to LLM</li>
- *   <li>4.2 - Persist messages to session</li>
+ *   <li>4.2 - Persist messages to session (via AgentSession)</li>
  *   <li>4.3 - Stream assistant response</li>
  *   <li>4.4 - Display response with Markdown</li>
  *   <li>4.6 - Handle LLM errors</li>
+ *   <li>1.1 - AgentSession lifecycle management</li>
+ *   <li>2.1 - AgentEventWrapper event handling</li>
  * </ul>
  */
 public class ChatService {
@@ -51,24 +60,43 @@ public class ChatService {
     private final ModelService modelService;
     private final CodingModelRegistry modelRegistry;
     private final BrandService brandService;
+    private final SettingsManager settingsManager;
+    private final ResourceLoader resourceLoader;  // Optional, can be null
     
-    private final Map<String, Agent> activeAgents = new ConcurrentHashMap<>();
+    private final Map<String, AgentSession> activeSessions = new ConcurrentHashMap<>();
     private final Map<String, SseEmitter> activeEmitters = new ConcurrentHashMap<>();
     private final Map<String, String> currentMessageIds = new ConcurrentHashMap<>();
     
     /**
-     * Creates a new ChatService.
+     * Creates a new ChatService with AgentSession support.
+     * 
+     * @param sessionService  Session management service
+     * @param modelService    Model information service
+     * @param modelRegistry   Model registry for API key resolution
+     * @param brandService    Brand configuration service
+     * @param settingsManager Settings manager for AgentSession configuration
+     * @param resourceLoader  Resource loader for Skills (optional, can be null)
      */
     public ChatService(SessionService sessionService, ModelService modelService, 
-                       CodingModelRegistry modelRegistry, BrandService brandService) {
+                       CodingModelRegistry modelRegistry, BrandService brandService,
+                       SettingsManager settingsManager, ResourceLoader resourceLoader) {
         this.sessionService = Objects.requireNonNull(sessionService);
         this.modelService = Objects.requireNonNull(modelService);
         this.modelRegistry = Objects.requireNonNull(modelRegistry);
         this.brandService = Objects.requireNonNull(brandService);
+        this.settingsManager = Objects.requireNonNull(settingsManager);
+        this.resourceLoader = resourceLoader;  // Optional
     }
     
     /**
      * Sends a message to a session and streams the response.
+     * 
+     * <p>Uses AgentSession.prompt() which automatically handles:
+     * <ul>
+     *   <li>Message persistence</li>
+     *   <li>System prompt rebuilding</li>
+     *   <li>Auto-retry on transient errors</li>
+     * </ul>
      * 
      * @param sessionId The session ID
      * @param content   The message content
@@ -79,8 +107,8 @@ public class ChatService {
         Objects.requireNonNull(content, "content must not be null");
         Objects.requireNonNull(emitter, "emitter must not be null");
         
-        // Get or create agent for session
-        Agent agent = getOrCreateAgent(sessionId);
+        // Get or create AgentSession for session
+        AgentSession agentSession = getOrCreateAgentSession(sessionId);
         
         // Store emitter for this session
         activeEmitters.put(sessionId, emitter);
@@ -106,16 +134,10 @@ public class ChatService {
             currentMessageIds.remove(sessionId);
         });
         
-        // Create user message
-        UserMessage userMessage = new UserMessage(content, System.currentTimeMillis());
-        AgentMessage agentMessage = MessageAdapter.wrap(userMessage);
+        // Note: No need to manually append user message - AgentSession handles persistence
         
-        // Append to session
-        SessionManager manager = sessionService.getSession(sessionId);
-        manager.appendMessage(agentMessage);
-        
-        // Send message to agent
-        agent.prompt(agentMessage)
+        // Send message to AgentSession
+        agentSession.prompt(content, null)
             .thenRun(() -> {
                 // Send done event
                 sendEvent(emitter, new ChatEvent.MessageDone(messageId, null));
@@ -132,12 +154,19 @@ public class ChatService {
     /**
      * Aborts the current chat operation for a session.
      * 
+     * <p>Calls AgentSession.abort() which handles:
+     * <ul>
+     *   <li>Aborting the underlying Agent</li>
+     *   <li>Cancelling any pending compaction</li>
+     *   <li>Cancelling any pending retry</li>
+     * </ul>
+     * 
      * @param sessionId The session ID
      */
     public void abortChat(String sessionId) {
-        Agent agent = activeAgents.get(sessionId);
-        if (agent != null) {
-            agent.abort();
+        AgentSession agentSession = activeSessions.get(sessionId);
+        if (agentSession != null) {
+            agentSession.abort();
             log.info("Aborted chat for session: {}", sessionId);
         }
         
@@ -150,6 +179,8 @@ public class ChatService {
     
     /**
      * Switches the model for a session.
+     * 
+     * <p>Uses AgentSession.setModel() which automatically persists the model change.
      * 
      * @param sessionId The session ID
      * @param provider  The provider ID
@@ -169,15 +200,15 @@ public class ChatService {
             throw new IllegalArgumentException("Model not found: " + provider + "/" + modelId);
         }
         
-        // Update agent if exists
-        Agent agent = activeAgents.get(sessionId);
-        if (agent != null) {
-            agent.setModel(model);
+        // Update AgentSession if exists - it will automatically persist the change
+        AgentSession agentSession = activeSessions.get(sessionId);
+        if (agentSession != null) {
+            agentSession.setModel(model);
+        } else {
+            // If no active session, just record the change in SessionManager
+            SessionManager manager = sessionService.getSession(sessionId);
+            manager.appendModelChange(provider, modelId);
         }
-        
-        // Record model change in session
-        SessionManager manager = sessionService.getSession(sessionId);
-        manager.appendModelChange(provider, modelId);
         
         log.info("Switched model for session {} to {}/{}", sessionId, provider, modelId);
     }
@@ -185,17 +216,20 @@ public class ChatService {
     /**
      * Gets context usage for a session.
      * 
+     * <p>Uses AgentSession.getState().getMessages() for token estimation
+     * and AgentSession.getModel().contextWindow() for context window size.
+     * 
      * @param sessionId The session ID
      * @return Context usage information
      */
     public ContextUsage getContextUsage(String sessionId) {
         SessionManager manager = sessionService.getSession(sessionId);
         
-        // Get current agent's model for context window
-        Agent agent = activeAgents.get(sessionId);
+        // Get current AgentSession's model for context window
+        AgentSession agentSession = activeSessions.get(sessionId);
         int contextWindow = 128000; // Default
-        if (agent != null && agent.getState().getModel() != null) {
-            contextWindow = agent.getState().getModel().contextWindow();
+        if (agentSession != null && agentSession.getModel() != null) {
+            contextWindow = agentSession.getModel().contextWindow();
         } else {
             // Fallback: look up from session's last model change via brand configs
             SessionContext ctx = manager.buildSessionContext();
@@ -207,48 +241,75 @@ public class ChatService {
             }
         }
         
-        // Estimate current tokens (simplified - would need proper tokenization)
-        int currentTokens = estimateTokens(manager);
+        // Estimate current tokens from AgentSession state or SessionManager
+        int currentTokens;
+        if (agentSession != null) {
+            currentTokens = estimateTokensFromMessages(agentSession.getMessages());
+        } else {
+            currentTokens = estimateTokens(manager);
+        }
         
         return ContextUsage.of(currentTokens, contextWindow);
     }
     
     /**
-     * Closes the agent for a session.
+     * Closes the AgentSession for a session.
+     * 
+     * <p>Calls AgentSession.dispose() which releases all resources:
+     * <ul>
+     *   <li>Unsubscribes from agent events</li>
+     *   <li>Removes resource change listeners</li>
+     *   <li>Aborts any pending operations</li>
+     *   <li>Disposes extension runner</li>
+     * </ul>
      * 
      * @param sessionId The session ID
      */
     public void closeAgent(String sessionId) {
-        Agent agent = activeAgents.remove(sessionId);
-        if (agent != null) {
-            agent.abort();
-            log.debug("Closed agent for session: {}", sessionId);
+        AgentSession agentSession = activeSessions.remove(sessionId);
+        if (agentSession != null) {
+            agentSession.dispose();
+            log.debug("Closed AgentSession for session: {}", sessionId);
         }
     }
     
     // ========== Private Methods ==========
     
-    private Agent getOrCreateAgent(String sessionId) {
-        return activeAgents.computeIfAbsent(sessionId, id -> {
-            log.debug("Creating new agent for session: {}", id);
+    /**
+     * Gets or creates an AgentSession for the given session ID.
+     * 
+     * <p>AgentSession provides:
+     * <ul>
+     *   <li>Automatic message persistence</li>
+     *   <li>Auto-retry on transient errors</li>
+     *   <li>Auto-compaction when context is full</li>
+     *   <li>Skills hot-reload support</li>
+     * </ul>
+     * 
+     * @param sessionId The session ID
+     * @return The AgentSession instance
+     */
+    private AgentSession getOrCreateAgentSession(String sessionId) {
+        return activeSessions.computeIfAbsent(sessionId, id -> {
+            log.debug("Creating new AgentSession for session: {}", id);
             
-            // Create agent with options
+            // Create underlying Agent with options
             AgentOptions options = AgentOptions.builder()
                 .getApiKey((provider) -> modelRegistry.getApiKeyForProvider(provider))
                 .build();
             
             Agent agent = new Agent(options);
             
-            // Subscribe to events
-            agent.subscribe(event -> handleAgentEvent(id, event));
+            // Get SessionManager for this session
+            SessionManager sessionManager = sessionService.getSession(id);
             
             // Load session context
-            SessionManager manager = sessionService.getSession(id);
-            SessionContext context = manager.buildSessionContext();
+            SessionContext context = sessionManager.buildSessionContext();
             
             // Set model if available
+            Model model = null;
             if (context.model() != null) {
-                Model model = modelRegistry.find(
+                model = modelRegistry.find(
                     context.model().provider(),
                     context.model().modelId()
                 );
@@ -266,8 +327,55 @@ public class ChatService {
             // Load existing messages
             agent.replaceMessages(context.messages());
             
-            return agent;
+            // Create AgentSessionConfig
+            String cwd = System.getProperty("user.dir");
+            AgentSessionConfig config = new AgentSessionConfig(
+                agent,
+                sessionManager,
+                settingsManager,
+                cwd,
+                List.of(),           // scopedModels (not used in web chat)
+                resourceLoader,      // can be null
+                List.of(),           // customTools (not used in web chat)
+                modelRegistry,
+                List.of()            // initialActiveToolNames
+            );
+            
+            // Create AgentSession
+            AgentSession agentSession = new AgentSession(config);
+            
+            // Subscribe to AgentSession events
+            agentSession.subscribe(event -> handleAgentSessionEvent(id, event));
+            
+            log.info("Created AgentSession for session: {}", id);
+            return agentSession;
         });
+    }
+    
+    /**
+     * Handles AgentSession events and converts them to ChatEvents.
+     * 
+     * <p>AgentSession emits two types of events:
+     * <ul>
+     *   <li>AgentEventWrapper - wraps underlying AgentEvent, should be converted to ChatEvent</li>
+     *   <li>ResourceChangeSessionEvent - Skills hot-reload notification, should be ignored for SSE</li>
+     * </ul>
+     * 
+     * @param sessionId The session ID
+     * @param event     The AgentSession event
+     */
+    private void handleAgentSessionEvent(String sessionId, AgentSessionEvent event) {
+        // Ignore ResourceChangeSessionEvent - these are internal notifications
+        if (event instanceof AgentSession.ResourceChangeSessionEvent) {
+            log.debug("Ignoring ResourceChangeSessionEvent for session: {}", sessionId);
+            return;
+        }
+        
+        // Handle AgentEventWrapper - extract and process the inner AgentEvent
+        if (event instanceof AgentSession.AgentEventWrapper wrapper) {
+            AgentEvent agentEvent = wrapper.event();
+            handleAgentEvent(sessionId, agentEvent);
+        }
     }
     
     private void handleAgentEvent(String sessionId, AgentEvent event) {
@@ -288,11 +396,8 @@ public class ChatService {
             sendEvent(emitter, chatEvent);
         }
         
-        // Persist assistant messages when they end
-        if (event instanceof AgentEvent.MessageEnd messageEnd) {
-            SessionManager manager = sessionService.getSession(sessionId);
-            manager.appendMessage(messageEnd.message());
-        }
+        // Note: Message persistence is now handled automatically by AgentSession
+        // No need to manually call sessionManager.appendMessage()
     }
     
     private ChatEvent convertEvent(AgentEvent event, String messageId) {
@@ -458,8 +563,16 @@ public class ChatService {
     private int estimateTokens(SessionManager manager) {
         // Simplified token estimation (roughly 4 chars per token)
         SessionContext context = manager.buildSessionContext();
+        return estimateTokensFromMessages(context.messages());
+    }
+    
+    /**
+     * Estimates token count from a list of messages.
+     * Uses simplified estimation (roughly 4 chars per token).
+     */
+    private int estimateTokensFromMessages(List<AgentMessage> messages) {
         int totalChars = 0;
-        for (AgentMessage msg : context.messages()) {
+        for (AgentMessage msg : messages) {
             if (msg instanceof MessageAdapter adapter) {
                 var message = adapter.message();
                 if (message instanceof UserMessage userMsg) {
