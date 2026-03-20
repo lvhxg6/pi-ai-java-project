@@ -69,6 +69,46 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles skill not found exceptions.
+     */
+    @ExceptionHandler(SkillNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleSkillNotFound(SkillNotFoundException e) {
+        log.debug("Skill not found: {}", e.getSkillName());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(ErrorResponse.of("NOT_FOUND", e.getMessage()));
+    }
+
+    /**
+     * Handles skill already exists exceptions.
+     */
+    @ExceptionHandler(SkillAlreadyExistsException.class)
+    public ResponseEntity<ErrorResponse> handleSkillAlreadyExists(SkillAlreadyExistsException e) {
+        log.debug("Skill already exists: {}", e.getSkillName());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(ErrorResponse.of("CONFLICT", e.getMessage()));
+    }
+
+    /**
+     * Handles skill read-only exceptions (user-level skills cannot be modified).
+     */
+    @ExceptionHandler(SkillReadOnlyException.class)
+    public ResponseEntity<ErrorResponse> handleSkillReadOnly(SkillReadOnlyException e) {
+        log.debug("Skill is read-only: {}", e.getSkillName());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+            .body(ErrorResponse.of("FORBIDDEN", e.getMessage()));
+    }
+
+    /**
+     * Handles invalid skill name exceptions.
+     */
+    @ExceptionHandler(InvalidSkillNameException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidSkillName(InvalidSkillNameException e) {
+        log.debug("Invalid skill name: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(ErrorResponse.of("VALIDATION_ERROR", e.getMessage()));
+    }
+
+    /**
      * Handles validation exceptions from @Valid annotations.
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)

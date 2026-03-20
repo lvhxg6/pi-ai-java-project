@@ -18,4 +18,9 @@ public class WebController {
     public String settings() {
         return "settings";
     }
+    
+    @GetMapping("/skills")
+    public String skills() {
+        return "skills";
+    }
 }

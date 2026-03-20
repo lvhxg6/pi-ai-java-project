@@ -8,6 +8,7 @@ import com.pi.chat.service.ChatService;
 import com.pi.chat.service.ModelService;
 import com.pi.chat.service.ProviderService;
 import com.pi.chat.service.SessionService;
+import com.pi.chat.service.SkillsService;
 import com.pi.chat.session.SessionManagerFactory;
 import com.pi.coding.model.CodingModelRegistry;
 import com.pi.coding.resource.DefaultResourceLoader;
@@ -273,5 +274,22 @@ public class AiChatConfig {
                                    @Autowired(required = false) ResourceLoader resourceLoader) {
         return new ChatService(sessionService, modelService, modelRegistry, brandService,
                                settingsManager, resourceLoader);
+    }
+    
+    /**
+     * Creates the SkillsService bean.
+     * 
+     * <p>Manages Skills CRUD operations and file I/O.
+     * 
+     * <p>Requirements:
+     * <ul>
+     *   <li>7.1 - SkillsService Bean for Skills management</li>
+     * </ul>
+     */
+    @Bean
+    public SkillsService skillsService(ResourceLoader resourceLoader) {
+        String cwd = System.getProperty("user.dir");
+        String agentDir = System.getProperty("user.home") + "/.kiro";
+        return new SkillsService(resourceLoader, cwd, agentDir);
     }
 }

@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" 
+      th:replace="~{layout :: html}" 
+      th:with="title='Skills - AI Chat'">
+<body>
+<div th:fragment="content" x-data="skillsApp()" x-cloak class="flex h-screen">
+    
+    <!-- Sidebar -->
+    <aside class="w-64 bg-gray-900 text-white flex flex-col">
+        <div class="p-4 border-b border-gray-700">
+            <h1 class="text-xl font-bold">AI Chat</h1>
+        </div>
+        
+        <div class="p-4">
+            <a href="/" class="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                </svg>
+                Back to Chat
+            </a>
+        </div>
+        
+        <nav class="flex-1 p-4 space-y-2">
+            <a href="/settings" class="block py-2 px-4 rounded-lg text-gray-300 hover:bg-gray-700">
+                Brands
+            </a>
+            <a href="/skills" class="block py-2 px-4 rounded-lg bg-gray-700 text-white">
+                Skills
+            </a>
+        </nav>
+    </aside>
+    
+    <!-- Main Content: Skills Management Layout -->
+    <div class="flex-1 flex">
+        
+        <!-- Left: Skills List Sidebar -->
+        <div class="w-80 bg-white border-r border-gray-200 flex flex-col">
+            <div class="p-4 border-b border-gray-200">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Skills</h3>
+                    <button @click="loadSkills()" class="text-gray-400 hover:text-gray-600" title="Refresh">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="text-xs text-gray-400">
+                    <span x-text="'User: ' + userSkillsCount"></span>
+                    <span class="mx-1">·</span>
+                    <span x-text="'Project: ' + projectSkillsCount"></span>
+                </div>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-2">
+                <!-- Loading State -->
+                <div x-show="loading" class="text-center py-8 text-gray-400">
+                    <svg class="animate-spin h-6 w-6 mx-auto mb-2" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Loading...
+                </div>
+                
+                <!-- Empty State -->
+                <div x-show="!loading && skills.length === 0" class="text-center py-8 text-gray-400">
+                    <svg class="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    <p class="text-sm">No skills found</p>
+                    <p class="text-xs mt-1">Create a new skill to get started</p>
+                </div>
+                
+                <!-- Skills List -->
+                <template x-for="skill in skills" :key="skill.name">
+                    <div class="skill-list-item p-3 rounded-lg cursor-pointer mb-1 hover:bg-gray-100"
+                         :class="{'bg-blue-50 border border-blue-200': selectedSkillName === skill.name}"
+                         @click="selectSkill(skill.name)">
+                        <div class="flex items-center justify-between">
+                            <span class="font-medium text-sm truncate" x-text="skill.name"></span>
+                            <span class="text-xs px-1.5 py-0.5 rounded"
+                                  :class="skill.source === 'user' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'"
+                                  x-text="skill.source === 'user' ? 'User' : 'Project'"></span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1 truncate" x-text="skill.description"></p>
+                    </div>
+                </template>
+            </div>
+            
+            <!-- Add Skill Buttons -->
+            <div class="p-3 border-t border-gray-200 space-y-2">
+                <button @click="showCreateForm = true; showUploadForm = false" 
+                        class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 text-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    Create Skill
+                </button>
+                <button @click="showUploadForm = true; showCreateForm = false"
+                        class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg flex items-center justify-center gap-2 text-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                    </svg>
+                    Upload Skill
+                </button>
+            </div>
+        </div>
+
+        
+        <!-- Right: Skill Detail/Edit Panel -->
+        <div class="flex-1 bg-gray-50 p-6 overflow-y-auto">
+            <!-- Message Banner -->
+            <div x-show="message" x-transition
+                 :class="messageType === 'success' ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-800 border-red-300'"
+                 class="mb-4 p-3 rounded-lg border text-sm">
+                <span x-text="message"></span>
+            </div>
+            
+            <!-- Create Skill Form -->
+            <div x-show="showCreateForm" class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-bold mb-4">Create New Skill</h2>
+                <form @submit.prevent="createSkill()">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Skill Name</label>
+                        <input type="text" x-model="newSkillName" required
+                               placeholder="e.g. my-custom-skill"
+                               class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-xs text-gray-400 mt-1">Use alphanumeric characters, hyphens, and underscores only</p>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Content</label>
+                        <textarea x-model="newSkillContent" required rows="15"
+                                  placeholder="---&#10;description: Your skill description&#10;---&#10;&#10;# Skill Title&#10;&#10;Your skill content here..."
+                                  class="w-full border rounded-lg px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                    <div class="flex gap-3">
+                        <button type="submit" :disabled="saving"
+                                class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg disabled:opacity-50">
+                            <span x-show="!saving">Create Skill</span>
+                            <span x-show="saving">Creating...</span>
+                        </button>
+                        <button type="button" @click="showCreateForm = false; clearForm()"
+                                class="text-gray-600 hover:text-gray-800 px-4 py-2">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- Upload Skill Form -->
+            <div x-show="showUploadForm" class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-bold mb-4">Upload Skill File</h2>
+                <form @submit.prevent="uploadSkill()">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Skill Name</label>
+                        <input type="text" x-model="uploadSkillName" required
+                               placeholder="e.g. my-custom-skill"
+                               class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Skill File (.md)</label>
+                        <input type="file" accept=".md" @change="handleFileSelect($event)" required
+                               class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div class="flex gap-3">
+                        <button type="submit" :disabled="saving || !uploadFile"
+                                class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg disabled:opacity-50">
+                            <span x-show="!saving">Upload Skill</span>
+                            <span x-show="saving">Uploading...</span>
+                        </button>
+                        <button type="button" @click="showUploadForm = false; clearForm()"
+                                class="text-gray-600 hover:text-gray-800 px-4 py-2">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- Skill Detail View -->
+            <div x-show="selectedSkill && !isEditing && !showCreateForm && !showUploadForm" class="bg-white rounded-lg shadow">
+                <!-- Header -->
+                <div class="p-6 border-b border-gray-200">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="text-2xl font-bold" x-text="selectedSkill?.name"></h2>
+                        <span class="text-xs px-2 py-1 rounded"
+                              :class="selectedSkill?.source === 'user' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'"
+                              x-text="selectedSkill?.source === 'user' ? 'User Level' : 'Project Level'"></span>
+                    </div>
+                    <p class="text-gray-600" x-text="selectedSkill?.description"></p>
+                    <p class="text-xs text-gray-400 mt-2" x-text="selectedSkill?.filePath"></p>
+                </div>
+                
+                <!-- Actions -->
+                <div class="p-4 border-b border-gray-200 flex gap-2">
+                    <button x-show="selectedSkill?.editable" @click="startEditing()"
+                            class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                        </svg>
+                        Edit
+                    </button>
+                    <button x-show="selectedSkill?.editable" @click="confirmDelete()"
+                            class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                        </svg>
+                        Delete
+                    </button>
+                    <span x-show="!selectedSkill?.editable" class="text-sm text-gray-500 italic py-2">
+                        User-level skills are read-only
+                    </span>
+                </div>
+                
+                <!-- Content -->
+                <div class="p-6">
+                    <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Content</h3>
+                    <div class="bg-gray-50 rounded-lg p-4 overflow-x-auto">
+                        <pre class="text-sm font-mono whitespace-pre-wrap" x-text="selectedSkill?.content"></pre>
+                    </div>
+                </div>
+            </div>
+
+            
+            <!-- Edit Skill Form -->
+            <div x-show="isEditing" class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-bold mb-4">Edit Skill: <span x-text="selectedSkill?.name"></span></h2>
+                <form @submit.prevent="saveSkill()">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Content</label>
+                        <textarea x-model="editContent" required rows="20"
+                                  class="w-full border rounded-lg px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                    <div class="flex gap-3">
+                        <button type="submit" :disabled="saving"
+                                class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg disabled:opacity-50">
+                            <span x-show="!saving">Save Changes</span>
+                            <span x-show="saving">Saving...</span>
+                        </button>
+                        <button type="button" @click="cancelEditing()"
+                                class="text-gray-600 hover:text-gray-800 px-4 py-2">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- Empty State (no skill selected) -->
+            <div x-show="!selectedSkill && !showCreateForm && !showUploadForm" class="flex items-center justify-center h-full">
+                <div class="text-center text-gray-400">
+                    <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    <p class="text-lg">Select a skill to view details</p>
+                    <p class="text-sm mt-1">Or create a new skill</p>
+                </div>
+            </div>
+            
+            <!-- Last Reload Info -->
+            <div class="mt-4 text-xs text-gray-400 text-right" x-show="lastReloadTimestamp">
+                Last reload: <span x-text="formatTimestamp(lastReloadTimestamp)"></span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Delete Confirmation Modal -->
+    <div x-show="showDeleteConfirm" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md" @click.away="showDeleteConfirm = false">
+            <h3 class="text-lg font-semibold mb-4">Delete Skill</h3>
+            <p class="text-gray-600 mb-6">Are you sure you want to delete "<span x-text="selectedSkill?.name"></span>"? This action cannot be undone.</p>
+            <div class="flex justify-end gap-3">
+                <button @click="showDeleteConfirm = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">Cancel</button>
+                <button @click="deleteSkill()" :disabled="saving"
+                        class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg disabled:opacity-50">
+                    <span x-show="!saving">Delete</span>
+                    <span x-show="saving">Deleting...</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script th:inline="javascript">
+function skillsApp() {
+    return {
+        // State
+        skills: [],
+        selectedSkillName: null,
+        selectedSkill: null,
+        isEditing: false,
+        showCreateForm: false,
+        showUploadForm: false,
+        showDeleteConfirm: false,
+        loading: false,
+        saving: false,
+        
+        // Counts
+        userSkillsCount: 0,
+        projectSkillsCount: 0,
+        lastReloadTimestamp: null,
+        
+        // Form data
+        newSkillName: '',
+        newSkillContent: '',
+        uploadSkillName: '',
+        uploadFile: null,
+        editContent: '',
+        
+        // Messages
+        message: '',
+        messageType: 'success',
+        
+        // Initialize
+        init() {
+            this.loadSkills();
+        },
+        
+        // Load all skills
+        async loadSkills() {
+            this.loading = true;
+            try {
+                const response = await fetch('/api/skills');
+                if (!response.ok) throw new Error('Failed to load skills');
+                const data = await response.json();
+                this.skills = data.skills;
+                this.userSkillsCount = data.userSkillsCount;
+                this.projectSkillsCount = data.projectSkillsCount;
+                this.lastReloadTimestamp = data.lastReloadTimestamp;
+            } catch (error) {
+                this.showMessage('Failed to load skills: ' + error.message, 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+        
+        // Select a skill
+        async selectSkill(skillName) {
+            this.selectedSkillName = skillName;
+            this.isEditing = false;
+            this.showCreateForm = false;
+            this.showUploadForm = false;
+            
+            try {
+                const response = await fetch('/api/skills/' + encodeURIComponent(skillName));
+                if (!response.ok) throw new Error('Failed to load skill');
+                this.selectedSkill = await response.json();
+            } catch (error) {
+                this.showMessage('Failed to load skill: ' + error.message, 'error');
+            }
+        },
+        
+        // Create new skill
+        async createSkill() {
+            this.saving = true;
+            try {
+                const response = await fetch('/api/skills', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: this.newSkillName,
+                        content: this.newSkillContent
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Failed to create skill');
+                }
+                
+                this.showMessage('Skill created successfully', 'success');
+                this.showCreateForm = false;
+                this.clearForm();
+                await this.loadSkills();
+                await this.selectSkill(this.newSkillName);
+            } catch (error) {
+                this.showMessage(error.message, 'error');
+            } finally {
+                this.saving = false;
+            }
+        },
+        
+        // Upload skill file
+        async uploadSkill() {
+            if (!this.uploadFile) return;
+            
+            this.saving = true;
+            try {
+                const formData = new FormData();
+                formData.append('file', this.uploadFile);
+                formData.append('skillName', this.uploadSkillName);
+                
+                const response = await fetch('/api/skills/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Failed to upload skill');
+                }
+                
+                this.showMessage('Skill uploaded successfully', 'success');
+                this.showUploadForm = false;
+                this.clearForm();
+                await this.loadSkills();
+                await this.selectSkill(this.uploadSkillName);
+            } catch (error) {
+                this.showMessage(error.message, 'error');
+            } finally {
+                this.saving = false;
+            }
+        },
+        
+        // Handle file selection
+        handleFileSelect(event) {
+            this.uploadFile = event.target.files[0];
+        },
+        
+        // Start editing
+        startEditing() {
+            this.editContent = this.selectedSkill.content;
+            this.isEditing = true;
+        },
+        
+        // Cancel editing
+        cancelEditing() {
+            this.isEditing = false;
+            this.editContent = '';
+        },
+        
+        // Save skill changes
+        async saveSkill() {
+            this.saving = true;
+            try {
+                const response = await fetch('/api/skills/' + encodeURIComponent(this.selectedSkill.name), {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: this.editContent })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Failed to update skill');
+                }
+                
+                this.showMessage('Skill updated successfully', 'success');
+                this.isEditing = false;
+                await this.loadSkills();
+                await this.selectSkill(this.selectedSkill.name);
+            } catch (error) {
+                this.showMessage(error.message, 'error');
+            } finally {
+                this.saving = false;
+            }
+        },
+        
+        // Confirm delete
+        confirmDelete() {
+            this.showDeleteConfirm = true;
+        },
+        
+        // Delete skill
+        async deleteSkill() {
+            this.saving = true;
+            try {
+                const response = await fetch('/api/skills/' + encodeURIComponent(this.selectedSkill.name), {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Failed to delete skill');
+                }
+                
+                this.showMessage('Skill deleted successfully', 'success');
+                this.showDeleteConfirm = false;
+                this.selectedSkill = null;
+                this.selectedSkillName = null;
+                await this.loadSkills();
+            } catch (error) {
+                this.showMessage(error.message, 'error');
+            } finally {
+                this.saving = false;
+            }
+        },
+        
+        // Clear form
+        clearForm() {
+            this.newSkillName = '';
+            this.newSkillContent = '';
+            this.uploadSkillName = '';
+            this.uploadFile = null;
+        },
+        
+        // Show message
+        showMessage(msg, type) {
+            this.message = msg;
+            this.messageType = type;
+            setTimeout(() => { this.message = ''; }, 5000);
+        },
+        
+        // Format timestamp
+        formatTimestamp(ts) {
+            if (!ts) return '';
+            return new Date(ts).toLocaleString();
+        }
+    };
+}
+</script>
+</body>
+</html>
